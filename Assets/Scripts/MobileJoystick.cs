@@ -3,8 +3,8 @@ using UnityEngine.UI;
 using UnityEngine.EventSystems;
 
 /// <summary>
-/// Mobile joystick (base + handle). Attach to the JoystickBG Image object.
-/// Must be childed: JoystickBG (this) -> JoystickHandle (Image child).
+/// Mobile joystick that safely finds or creates a handle Image child.
+/// Attach to JoystickBG (Image). Child JoystickHandle is recommended but optional.
 /// </summary>
 public class MobileJoystick : MonoBehaviour, IDragHandler, IPointerUpHandler, IPointerDownHandler
 {
@@ -18,10 +18,35 @@ public class MobileJoystick : MonoBehaviour, IDragHandler, IPointerUpHandler, IP
     void Awake()
     {
         bgImage = GetComponent<Image>();
-        if (transform.childCount > 0)
-            handleImage = transform.GetChild(0).GetComponent<Image>();
-        else
-            Debug.LogError("MobileJoystick: JoystickHandle child missing.");
+        // try find child named JoystickHandle first
+        Transform t = transform.Find("JoystickHandle");
+        if (t != null) handleImage = t.GetComponent<Image>();
+
+        // otherwise find any Image child
+        if (handleImage == null)
+        {
+            foreach (Transform child in transform)
+            {
+                var img = child.GetComponent<Image>();
+                if (img != null) { handleImage = img; break; }
+            }
+        }
+
+        // If none found, create a default handle GameObject
+        if (handleImage == null)
+        {
+            GameObject go = new GameObject("JoystickHandle", typeof(RectTransform), typeof(Image));
+            go.transform.SetParent(transform, false);
+            handleImage = go.GetComponent<Image>();
+
+            // default visuals (transparent white) — you should replace sprite in inspector
+            handleImage.color = new Color(0.9f, 0.9f, 0.9f, 0.9f);
+
+            // configure RectTransform defaults
+            var rt = go.GetComponent<RectTransform>();
+            rt.sizeDelta = new Vector2(150, 150);
+            rt.anchoredPosition = Vector2.zero;
+        }
     }
 
     public void OnDrag(PointerEventData ped)
@@ -58,12 +83,8 @@ public class MobileJoystick : MonoBehaviour, IDragHandler, IPointerUpHandler, IP
             handleImage.rectTransform.anchoredPosition = Vector2.zero;
     }
 
-    /// <summary>Horizontal input -1..1</summary>
     public float Horizontal() => inputVector.x;
-    /// <summary>Vertical input -1..1</summary>
     public float Vertical() => inputVector.y;
-    /// <summary>2D Direction vector</summary>
     public Vector2 Direction() => inputVector;
-    /// <summary>Magnitude 0..1</summary>
     public float Magnitude() => inputVector.magnitude;
 }
