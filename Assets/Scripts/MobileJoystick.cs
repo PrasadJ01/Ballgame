@@ -1,48 +1,69 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
 
+/// <summary>
+/// Mobile joystick (base + handle). Attach to the JoystickBG Image object.
+/// Must be childed: JoystickBG (this) -> JoystickHandle (Image child).
+/// </summary>
 public class MobileJoystick : MonoBehaviour, IDragHandler, IPointerUpHandler, IPointerDownHandler
 {
     private Image bgImage;
-    private Image joystickImage;
-    private Vector2 inputVector;
+    private Image handleImage;
+    private Vector2 inputVector = Vector2.zero;
 
-    void Start()
+    [Tooltip("How far the handle can move inside the background (as fraction of bg size).")]
+    public float handleMoveRange = 0.33f;
+
+    void Awake()
     {
         bgImage = GetComponent<Image>();
         if (transform.childCount > 0)
-            joystickImage = transform.GetChild(0).GetComponent<Image>();
+            handleImage = transform.GetChild(0).GetComponent<Image>();
+        else
+            Debug.LogError("MobileJoystick: JoystickHandle child missing.");
     }
 
     public void OnDrag(PointerEventData ped)
     {
-        Vector2 pos;
-        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(bgImage.rectTransform, ped.position, ped.pressEventCamera, out pos))
+        if (bgImage == null) return;
+
+        Vector2 localPoint;
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            bgImage.rectTransform, ped.position, ped.pressEventCamera, out localPoint);
+
+        // Normalize local point to -1..1 based on bg size
+        float px = localPoint.x / bgImage.rectTransform.sizeDelta.x;
+        float py = localPoint.y / bgImage.rectTransform.sizeDelta.y;
+
+        // Convert to -1..1
+        Vector2 normalized = new Vector2(px * 2f, py * 2f);
+        inputVector = (normalized.magnitude > 1f) ? normalized.normalized : normalized;
+
+        // Set handle anchored position limited by handleMoveRange
+        if (handleImage != null)
         {
-            pos.x = (pos.x / bgImage.rectTransform.sizeDelta.x);
-            pos.y = (pos.y / bgImage.rectTransform.sizeDelta.y);
-
-            inputVector = new Vector2(pos.x * 2 - 1, pos.y * 2 - 1);
-            inputVector = (inputVector.magnitude > 1.0f) ? inputVector.normalized : inputVector;
-
-            joystickImage.rectTransform.anchoredPosition =
-                new Vector2(inputVector.x * (bgImage.rectTransform.sizeDelta.x / 3),
-                            inputVector.y * (bgImage.rectTransform.sizeDelta.y / 3));
+            float maxX = bgImage.rectTransform.sizeDelta.x * handleMoveRange;
+            float maxY = bgImage.rectTransform.sizeDelta.y * handleMoveRange;
+            handleImage.rectTransform.anchoredPosition = new Vector2(inputVector.x * maxX, inputVector.y * maxY);
         }
     }
 
-    public void OnPointerDown(PointerEventData ped) { OnDrag(ped); }
+    public void OnPointerDown(PointerEventData ped) => OnDrag(ped);
 
     public void OnPointerUp(PointerEventData ped)
     {
         inputVector = Vector2.zero;
-        if (joystickImage != null)
-            joystickImage.rectTransform.anchoredPosition = Vector2.zero;
+        if (handleImage != null)
+            handleImage.rectTransform.anchoredPosition = Vector2.zero;
     }
 
+    /// <summary>Horizontal input -1..1</summary>
     public float Horizontal() => inputVector.x;
+    /// <summary>Vertical input -1..1</summary>
     public float Vertical() => inputVector.y;
+    /// <summary>2D Direction vector</summary>
+    public Vector2 Direction() => inputVector;
+    /// <summary>Magnitude 0..1</summary>
+    public float Magnitude() => inputVector.magnitude;
 }
