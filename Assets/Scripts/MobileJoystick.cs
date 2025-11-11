@@ -33,20 +33,7 @@ public class MobileJoystick : MonoBehaviour, IDragHandler, IPointerUpHandler, IP
         }
 
         // If none found, create a default handle GameObject
-        if (handleImage == null)
-        {
-            GameObject go = new GameObject("JoystickHandle", typeof(RectTransform), typeof(Image));
-            go.transform.SetParent(transform, false);
-            handleImage = go.GetComponent<Image>();
-
-            // default visuals (transparent white) — you should replace sprite in inspector
-            handleImage.color = new Color(0.9f, 0.9f, 0.9f, 0.9f);
-
-            // configure RectTransform defaults
-            var rt = go.GetComponent<RectTransform>();
-            rt.sizeDelta = new Vector2(150, 150);
-            rt.anchoredPosition = Vector2.zero;
-        }
+       
     }
 
     public void OnDrag(PointerEventData ped)
