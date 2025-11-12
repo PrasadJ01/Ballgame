@@ -9,10 +9,8 @@ public class PlayerHit3D : MonoBehaviour
     {
         if (collision.collider.CompareTag(enemyTag))
         {
-            if (GameManager.Instance != null)
-            {
-                GameManager.Instance.LoseLife(damage);
-            }
+            Debug.Log("[PlayerHit3D] Collided with Enemy.");
+            if (GameManager.Instance != null) GameManager.Instance.LoseLife(damage);
         }
     }
 
@@ -20,10 +18,8 @@ public class PlayerHit3D : MonoBehaviour
     {
         if (other.CompareTag(enemyTag))
         {
-            if (GameManager.Instance != null)
-            {
-                GameManager.Instance.LoseLife(damage);
-            }
+            Debug.Log("[PlayerHit3D] Triggered by Enemy.");
+            if (GameManager.Instance != null) GameManager.Instance.LoseLife(damage);
         }
     }
 }
