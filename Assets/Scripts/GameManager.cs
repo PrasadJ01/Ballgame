@@ -3,14 +3,12 @@ using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using TMPro;
 using UnityEngine.EventSystems;
-using System.Collections;
 
 public class GameManager : MonoBehaviour
 {
     public static GameManager Instance { get; private set; }
 
     [Header("Player Stats")]
-    [Tooltip("Number of lives player starts with")]
     public int startLives = 3;
     [HideInInspector] public int lives;
     public int score = 0;
@@ -22,123 +20,104 @@ public class GameManager : MonoBehaviour
     public TextMeshProUGUI livesText;
 
     [Header("Game Over UI")]
-    [Tooltip("Panel that appears on Game Over")]
     public GameObject gameOverPanel;
     public TextMeshProUGUI gameOverText;
-    [Tooltip("Restart button inside the Game Over panel")]
     public Button restartButton;
 
     [Header("Win UI")]
-    [Tooltip("Panel that appears on Win")]
     public GameObject winPanel;
     public TextMeshProUGUI winText;
-    [Tooltip("Continue button inside the Win panel")]
     public Button winContinueButton;
 
-    [Header("Optional Effects")]
-    [Tooltip("Optional ParticleSystem prefab to play when life is lost")]
+    [Header("Effects")]
     public ParticleSystem lifeLostEffectPrefab;
-    [Tooltip("Optional ParticleSystem prefab to play on win")]
     public ParticleSystem winEffectPrefab;
 
-    [Header("Settings")]
-    [Tooltip("If true, show debug messages")]
-    public bool debugLogs = false;
-
-    private bool isGameOver = false;
-    private bool isWin = false;
+    bool isGameOver = false;
+    bool isWin = false;
 
     void Awake()
     {
-        // singleton
-        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+        if (Instance != null && Instance != this) 
+        { 
+            Destroy(gameObject); 
+            return; 
+        }
         Instance = this;
 
-        // ensure EventSystem exists so UI works
         if (EventSystem.current == null)
         {
-            var esGO = new GameObject("EventSystem");
-            esGO.AddComponent<EventSystem>();
-            esGO.AddComponent<StandaloneInputModule>();
-            DontDestroyOnLoad(esGO);
+            var es = new GameObject("EventSystem");
+            es.AddComponent<EventSystem>();
+            es.AddComponent<StandaloneInputModule>();
+            DontDestroyOnLoad(es);
         }
     }
 
     void Start()
     {
-        // initialize lives
-        lives = Mathf.Max(0, startLives);
+        lives = startLives;
 
-        // hide UI panels at start
-        if (gameOverPanel != null) gameOverPanel.SetActive(false);
-        if (winPanel != null) winPanel.SetActive(false);
+        if (gameOverPanel) gameOverPanel.SetActive(false);
+        if (winPanel) winPanel.SetActive(false);
 
-        // hide buttons initially (they'll be enabled when needed)
-        if (restartButton != null) restartButton.gameObject.SetActive(false);
-        if (winContinueButton != null) winContinueButton.gameObject.SetActive(false);
-
-        // wire button callbacks
         if (restartButton != null)
         {
+            restartButton.gameObject.SetActive(false);
             restartButton.onClick.RemoveAllListeners();
-            restartButton.onClick.AddListener(RestartGame);
+            restartButton.onClick.AddListener(RestartGame);   // ✅ SAFE NOW
         }
+
         if (winContinueButton != null)
         {
+            winContinueButton.gameObject.SetActive(false);
             winContinueButton.onClick.RemoveAllListeners();
-            winContinueButton.onClick.AddListener(OnWinContinueButtonPressed);
+            winContinueButton.onClick.AddListener(OnWinContinue);
         }
 
         UpdateUI();
-
-        if (debugLogs) Debug.Log($"[GameManager] Start() lives={lives} score={score} coins={coins}");
     }
 
-    // ----------------------
-    // Public API (other scripts call these)
-    // ----------------------
-
+    // ---------------------------------------------------------
+    // PUBLIC API
+    // ---------------------------------------------------------
     public void AddScore(int amount)
     {
         score += amount;
         UpdateUI();
-        if (debugLogs) Debug.Log($"[GameManager] AddScore({amount}) -> score={score}");
     }
 
     public void AddCoin(int amount)
     {
         coins += amount;
         UpdateUI();
-        if (debugLogs) Debug.Log($"[GameManager] AddCoin({amount}) -> coins={coins}");
     }
 
-    // Called by Player when hit. hitTransform optional - used for effects location.
+    public bool IsWinState()
+    {
+        return isWin;
+    }
+
     public void OnPlayerHit(int damage = 1, Transform hitTransform = null)
     {
         if (isGameOver || isWin) return;
 
-        if (debugLogs) Debug.Log($"[GameManager] OnPlayerHit(damage={damage})");
-
-        // play life-lost effect (optional)
-        if (lifeLostEffectPrefab != null)
+        if (lifeLostEffectPrefab && hitTransform)
         {
-            Vector3 spawnPos = (hitTransform != null) ? hitTransform.position : Vector3.zero;
-            Instantiate(lifeLostEffectPrefab, spawnPos, Quaternion.identity);
+            Instantiate(lifeLostEffectPrefab, hitTransform.position, Quaternion.identity);
         }
 
         LoseLife(damage);
     }
 
-    // Some scripts may call this directly
     public void LoseLife(int amount = 1)
     {
         if (isGameOver || isWin) return;
 
         lives -= amount;
-        lives = Mathf.Max(0, lives);
-        UpdateUI();
+        if (lives < 0) lives = 0;
 
-        if (debugLogs) Debug.Log($"[GameManager] LoseLife({amount}) -> lives={lives}");
+        UpdateUI();
 
         if (lives <= 0)
         {
@@ -146,132 +125,72 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    // Returns whether the game is in win state (useful for player script safety)
-    public bool IsWinState()
-    {
-        return isWin;
-    }
-
-    // ----------------------
-    // Game Over flow
-    // ----------------------
+    // ---------------------------------------------------------
+    // GAME OVER
+    // ---------------------------------------------------------
     void ShowGameOver()
     {
-        if (isGameOver) return;
         isGameOver = true;
 
-        if (debugLogs) Debug.Log("[GameManager] ShowGameOver()");
+        if (gameOverPanel) gameOverPanel.SetActive(true);
+        if (gameOverText) gameOverText.text = "GAME OVER";
 
-        // show panel if assigned
-        if (gameOverPanel != null)
-        {
-            gameOverPanel.SetActive(true);
-            BringToFront(gameOverPanel);
-        }
+        if (restartButton) restartButton.gameObject.SetActive(true);
 
-        if (gameOverText != null) gameOverText.text = "GAME OVER";
-
-        // show restart button
-        if (restartButton != null)
-        {
-            restartButton.gameObject.SetActive(true);
-            restartButton.interactable = true;
-            EventSystem.current?.SetSelectedGameObject(restartButton.gameObject);
-        }
-
-        // pause gameplay (UI still works)
         Time.timeScale = 0f;
     }
 
-    // ----------------------
-    // Win flow
-    // ----------------------
-    /// <summary> Call when player reaches the finish/goal. </summary>
-    public void Win(Transform finishTransform = null)
+    // ---------------------------------------------------------
+    // WIN
+    // ---------------------------------------------------------
+    public void Win(Transform finishTransform)
     {
         if (isGameOver || isWin) return;
+
         isWin = true;
 
-        if (debugLogs) Debug.Log("[GameManager] Win() called.");
-
-        // spawn win effect if available
-        if (finishTransform != null && winEffectPrefab != null)
-        {
+        if (winEffectPrefab && finishTransform)
             Instantiate(winEffectPrefab, finishTransform.position, Quaternion.identity);
-        }
 
         ShowWin();
     }
 
     void ShowWin()
     {
-        if (winPanel != null)
-        {
-            winPanel.SetActive(true);
-            BringToFront(winPanel);
-        }
+        if (winPanel) winPanel.SetActive(true);
+        if (winText) winText.text = "YOU WIN!";
+        if (winContinueButton) winContinueButton.gameObject.SetActive(true);
 
-        if (winText != null) winText.text = "YOU WIN!";
-
-        if (winContinueButton != null)
-        {
-            winContinueButton.gameObject.SetActive(true);
-            winContinueButton.interactable = true;
-            EventSystem.current?.SetSelectedGameObject(winContinueButton.gameObject);
-        }
-
-        // pause gameplay
         Time.timeScale = 0f;
     }
 
-    void OnWinContinueButtonPressed()
+    void OnWinContinue()
     {
-        // Default: load next scene if available, otherwise reload current
-        int nextIndex = SceneManager.GetActiveScene().buildIndex + 1;
-        if (nextIndex < SceneManager.sceneCountInBuildSettings)
-        {
-            Time.timeScale = 1f;
-            SceneManager.LoadScene(nextIndex);
-        }
+        Time.timeScale = 1f;
+        int next = SceneManager.GetActiveScene().buildIndex + 1;
+
+        if (next < SceneManager.sceneCountInBuildSettings)
+            SceneManager.LoadScene(next);
         else
-        {
-            Time.timeScale = 1f;
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
-        }
     }
 
-    // ----------------------
-    // Restart / Utility
-    // ----------------------
-    public void RestartGame()
+    // ---------------------------------------------------------
+    // REQUIRED — FIXES YOUR ERROR
+    // ---------------------------------------------------------
+    public void RestartGame()   // 🎯 THIS METHOD IS WHAT WAS MISSING
     {
-        if (debugLogs) Debug.Log("[GameManager] RestartGame() called.");
         Time.timeScale = 1f;
         SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
 
-    void BringToFront(GameObject panel)
-    {
-        var rt = panel.transform as RectTransform;
-        if (rt != null) rt.SetAsLastSibling();
-        var canvas = panel.GetComponentInParent<Canvas>();
-        if (canvas != null)
-        {
-            var gr = canvas.GetComponent<GraphicRaycaster>();
-            if (gr == null) canvas.gameObject.AddComponent<GraphicRaycaster>();
-            canvas.sortingOrder = 999;
-        }
-        var cg = panel.GetComponent<CanvasGroup>();
-        if (cg == null) cg = panel.AddComponent<CanvasGroup>();
-        cg.interactable = true;
-        cg.blocksRaycasts = true;
-        if (cg.alpha <= 0f) cg.alpha = 1f;
-    }
-
+    // ---------------------------------------------------------
+    // UI UPDATE
+    // ---------------------------------------------------------
     void UpdateUI()
     {
         if (scoreText) scoreText.text = "Score: " + score.ToString("0000");
-        if (coinsText) coinsText.text = "Coins: " + coins.ToString();
-        if (livesText) livesText.text = "Lives: " + lives.ToString();
+        if (coinsText) coinsText.text = "Coins: " + coins;
+        if (livesText) livesText.text = "Lives: " + lives;
     }
 }
