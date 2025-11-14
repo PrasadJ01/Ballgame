@@ -193,4 +193,10 @@ public class GameManager : MonoBehaviour
         if (coinsText) coinsText.text = "Coins: " + coins;
         if (livesText) livesText.text = "Lives: " + lives;
     }
+    public class LevelStarter : MonoBehaviour
+{
+    public int levelNumber = 1;
+    void Start() { PlayerPrefs.SetInt("LastLevel", levelNumber); }
 }
+}
+
