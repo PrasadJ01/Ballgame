@@ -1,58 +1,92 @@
+using System;
+using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
 
-/// <summary>
-/// Finds a UI Button named playButtonName (searches children first, then all Buttons in scene),
-/// and wires it to call MainMenuController.PlayFirstLevel() on the same GameObject.
-/// Place this component on the same GameObject that has MainMenuController (e.g. MainMenuManager).
-/// </summary>
 [RequireComponent(typeof(Transform))]
 public class AutoWirePlayButtonFixed : MonoBehaviour
 {
-    [Tooltip("Exact name of the Play button GameObject")]
+    [Tooltip("Exact name of the Play button GameObject (case-sensitive)")]
     public string playButtonName = "Play";
+
+    // list of common method names we'll try to invoke on your MainMenuController
+    readonly string[] candidateMethodNames = new string[] { "PlayFirstLevel", "OpenLevelSelect", "Play", "OnPlayPressed", "StartGame" };
 
     void Start()
     {
-        // Find play button as child first
+        // find the Button
+        Button foundButton = null;
+
+        // 1) try to find as direct child
         Transform child = transform.Find(playButtonName);
-        Button found = null;
+        if (child != null) foundButton = child.GetComponent<Button>();
 
-        if (child != null)
-            found = child.GetComponent<Button>();
-
-        // If not found as child, search all Buttons in scene
-        if (found == null)
+        // 2) fallback: search all Buttons in scene by name
+        if (foundButton == null)
         {
             var all = FindObjectsOfType<Button>();
             foreach (var b in all)
             {
                 if (b.gameObject.name == playButtonName)
                 {
-                    found = b;
+                    foundButton = b;
                     break;
                 }
             }
         }
 
-        if (found == null)
+        if (foundButton == null)
         {
-            Debug.LogWarning($"[AutoWirePlayButtonFixed] Could not find a Button named '{playButtonName}' in scene. Check name or assign manually.");
+            Debug.LogWarning($"[AutoWirePlayButtonFixed] Play Button named '{playButtonName}' not found in scene. Please check name or assign manually.");
             return;
         }
 
-        // Ensure the MainMenuController exists on this GameObject
-        var controller = GetComponent<MainMenuController>();
-        if (controller == null)
+        // find controller on this same GameObject
+        var controller = GetComponent<MonoBehaviour>(); // placeholder to get runtime type; we'll search for any component that has a candidate method
+        MethodInfo selectedMethod = null;
+        Component selectedComponent = null;
+
+        // search all components on this GameObject for a candidate method
+        var comps = GetComponents<Component>();
+        foreach (var comp in comps)
         {
-            Debug.LogError("[AutoWirePlayButtonFixed] MainMenuController not found on same GameObject. Attach MainMenuController to this GameObject.");
+            if (comp == null) continue;
+            var t = comp.GetType();
+            foreach (var mname in candidateMethodNames)
+            {
+                var mi = t.GetMethod(mname, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (mi != null)
+                {
+                    selectedMethod = mi;
+                    selectedComponent = comp;
+                    break;
+                }
+            }
+            if (selectedMethod != null) break;
+        }
+
+        if (selectedMethod == null)
+        {
+            Debug.LogWarning("[AutoWirePlayButtonFixed] No suitable method found on this GameObject. Candidate names: " + string.Join(", ", candidateMethodNames));
+            Debug.LogWarning("[AutoWirePlayButtonFixed] Attach a MainMenuController (or similar) with one of those methods, or wire the button manually in the Inspector.");
             return;
         }
 
-        // Wire listener (avoid duplicates)
-        found.onClick.RemoveListener(controller.PlayFirstLevel);
-        found.onClick.AddListener(controller.PlayFirstLevel);
+        // wire the button: use lambda that calls MethodInfo.Invoke
+        foundButton.onClick.RemoveAllListeners();
+        foundButton.onClick.AddListener(() =>
+        {
+            try
+            {
+                selectedMethod.Invoke(selectedComponent, null);
+                Debug.Log($"[AutoWirePlayButtonFixed] Invoked '{selectedMethod.Name}' on component '{selectedComponent.GetType().Name}'.");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[AutoWirePlayButtonFixed] Exception invoking method: " + ex);
+            }
+        });
 
-        Debug.Log($"[AutoWirePlayButtonFixed] Wired Play button '{found.gameObject.name}' to MainMenuController.PlayFirstLevel()");
+        Debug.Log($"[AutoWirePlayButtonFixed] Wired Play button '{foundButton.gameObject.name}' to method '{selectedMethod.Name}' on component '{selectedComponent.GetType().Name}'.");
     }
 }
