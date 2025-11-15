@@ -1,31 +1,20 @@
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
-public class MainMenuController : MonoBehaviour
+public class MainMenuManager : MonoBehaviour
 {
-    [Tooltip("Panel that contains the level buttons (GameObject under Canvas)")]
-    public GameObject levelSelectPanel; // assign LevelSelect panel here
-
-    void Start()
+    public void PlayGame()
     {
-        if (levelSelectPanel != null) levelSelectPanel.SetActive(false); // hide at start
+        SceneManager.LoadScene("LevelSelect");
     }
 
-    // Called by Play button OnClick
-    public void OpenLevelSelect()
+    public void OpenLevel1()
     {
-        if (levelSelectPanel != null)
-        {
-            levelSelectPanel.SetActive(true);
-            // optional: set the first selectable button
-            UnityEngine.EventSystems.EventSystem.current?.SetSelectedGameObject(
-                levelSelectPanel.transform.Find("Content/LevelButton_1")?.gameObject
-            );
-        }
+        SceneManager.LoadScene("Level_1");
     }
 
-    // Optional: call this from a Back button inside levelSelectPanel
-    public void CloseLevelSelect()
+    public void QuitGame()
     {
-        if (levelSelectPanel != null) levelSelectPanel.SetActive(false);
+        Application.Quit();
     }
 }
