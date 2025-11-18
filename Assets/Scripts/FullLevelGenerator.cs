@@ -1,8 +1,6 @@
 // Assets/Scripts/FullLevelGenerator.cs
-// Full generator that supports Editor-mode generation (prefab instances + Undo) and Play-mode generation.
-// - Editor: use "Generate In Editor" (context menu) to create prefab instances saved in the scene.
-// - Play: autoGenerateInPlay will create runtime instances; if preserveEditorGenerated=true and you have editor-generated children,
-//         the runtime generator will preserve them and cache their positions to avoid spawning overlaps.
+// Full generator with pickup hover fix: pickups' bottoms sit on road surface using prefab bounds.
+// Editor & runtime generation, preserve editor-generated objects, overlap checks, mountains off-road.
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -10,7 +8,7 @@ using PathCreation;
 
 #if UNITY_EDITOR
 using UnityEditor;
-using UnityEditor.SceneManagement; // required for EditorSceneManager
+using UnityEditor.SceneManagement;
 #endif
 
 [DisallowMultipleComponent]
@@ -33,6 +31,18 @@ public class FullLevelGenerator : MonoBehaviour
     public bool forceSpawn = false;
     [Tooltip("If true, editor-generated objects (created with 'Generate In Editor') will be preserved when entering Play.")]
     public bool preserveEditorGenerated = true;
+
+    [Header("Pickup hover")]
+    [Tooltip("Vertical offset so pickups sit slightly above road surface (meters)")]
+    public float pickupHoverHeight = 0.12f;
+    [Tooltip("If true, pickups will be aligned to road normal and sit on top of the surface")]
+    public bool alignPickupToSurface = true;
+
+    [Header("Obstacle placement options")]
+    [Tooltip("If false obstacles will NOT be placed on the road center — they will be forced to spawn outside the road like decor.")]
+    public bool placeObstaclesOnRoad = false;
+    [Tooltip("Maximum prefab height (world units) allowed for obstacles. Taller prefabs will be skipped.")]
+    public float maxObstacleHeight = 8f;
 
     [Header("Prefab Pools (Inspector or runtime Resources)")]
     public List<GameObject> mountainLeftPrefabs = new List<GameObject>();
@@ -89,15 +99,12 @@ public class FullLevelGenerator : MonoBehaviour
         if (Application.isPlaying && autoGenerateInPlay)
         {
             TryRuntimeLoadPrefabs();
-            Invoke(nameof(GenerateAll), 0.05f); // small delay for runtime setup
+            Invoke(nameof(GenerateAll), 0.05f);
         }
     }
     #endregion
 
     #region Public entry points
-    /// <summary>
-    /// Public entry. In Editor this delegates to the Editor-aware generation. In Play it runs runtime generation.
-    /// </summary>
     public void GenerateAll()
     {
 #if UNITY_EDITOR
@@ -123,7 +130,7 @@ public class FullLevelGenerator : MonoBehaviour
     }
     #endregion
 
-    #region Validation
+    #region Validation & parents
     bool ValidatePath()
     {
         if (pathCreator == null)
@@ -140,9 +147,7 @@ public class FullLevelGenerator : MonoBehaviour
         }
         return true;
     }
-    #endregion
 
-    #region Parent helpers & clear
     void PrepareParents()
     {
         wallsParent = FindOrCreate(parentPrefix + "RoadWalls");
@@ -165,7 +170,9 @@ public class FullLevelGenerator : MonoBehaviour
         }
         return t;
     }
+    #endregion
 
+    #region Clear helpers
     void ClearGeneratedRuntime()
     {
         ClearChildrenRuntime(wallsParent);
@@ -190,7 +197,7 @@ public class FullLevelGenerator : MonoBehaviour
     }
     #endregion
 
-    #region Editor: Generate / Clear (prefab-aware)
+    #region Editor actions
 #if UNITY_EDITOR
     [ContextMenu("Generate In Editor")]
     public void GenerateAllInEditor()
@@ -262,7 +269,7 @@ public class FullLevelGenerator : MonoBehaviour
 #endif
     #endregion
 
-    #region Runtime generation (respects preserveEditorGenerated)
+    #region Runtime generation (respect preserve flag)
     void GenerateAllRuntime()
     {
         if (!Application.isPlaying)
@@ -275,7 +282,6 @@ public class FullLevelGenerator : MonoBehaviour
 
         PrepareParents();
 
-        // If preserveEditorGenerated and there are existing children, cache them and skip clearing.
         if (preserveEditorGenerated && HasGeneratedChildren())
         {
             if (debugMode) Debug.Log("[FullLevelGenerator] Preserving editor-generated objects. Caching them for overlap checks and skipping runtime regeneration.");
@@ -283,7 +289,6 @@ public class FullLevelGenerator : MonoBehaviour
             return;
         }
 
-        // Normal runtime generation: clear and generate
         ClearGeneratedRuntime();
         placedPositions.Clear();
         placedRadii.Clear();
@@ -302,7 +307,7 @@ public class FullLevelGenerator : MonoBehaviour
     }
     #endregion
 
-    #region Helpers to detect/cache editor-generated objects
+    #region Cache existing editor objects
     bool HasGeneratedChildren()
     {
         if (wallsParent != null && wallsParent.childCount > 0) return true;
@@ -372,7 +377,9 @@ public class FullLevelGenerator : MonoBehaviour
             if (mountainLeftPrefabs.Count > 0)
             {
                 var pf = mountainLeftPrefabs[Random.Range(0, mountainLeftPrefabs.Count)];
-                Vector3 pos = center - right * (halfW + 0.25f);
+                float radius = GetPrefabRadius(pf, 0.5f);
+                float lateral = halfW + radius + 0.12f;
+                Vector3 pos = center - right * lateral;
                 pos.y = GetGroundYAt(pos);
                 Quaternion rot = Quaternion.LookRotation(tangent, Vector3.up);
                 var go = Instantiate(pf, pos, rot, wallsParent);
@@ -382,7 +389,9 @@ public class FullLevelGenerator : MonoBehaviour
             if (mountainRightPrefabs.Count > 0)
             {
                 var pf = mountainRightPrefabs[Random.Range(0, mountainRightPrefabs.Count)];
-                Vector3 pos = center + right * (halfW + 0.25f);
+                float radius = GetPrefabRadius(pf, 0.5f);
+                float lateral = halfW + radius + 0.12f;
+                Vector3 pos = center + right * lateral;
                 pos.y = GetGroundYAt(pos);
                 Quaternion rot = Quaternion.LookRotation(tangent, Vector3.up);
                 var go = Instantiate(pf, pos, rot, wallsParent);
@@ -409,7 +418,9 @@ public class FullLevelGenerator : MonoBehaviour
             if (mountainLeftPrefabs.Count > 0)
             {
                 var pf = mountainLeftPrefabs[Random.Range(0, mountainLeftPrefabs.Count)];
-                Vector3 pos = center - right * (halfW + 0.25f);
+                float radius = GetPrefabRadius(pf, 0.5f);
+                float lateral = halfW + radius + 0.12f;
+                Vector3 pos = center - right * lateral;
                 pos.y = GetGroundYAt(pos);
                 Quaternion rot = Quaternion.LookRotation(tangent, Vector3.up);
                 var inst = (GameObject)PrefabUtility.InstantiatePrefab(pf, wallsParent.gameObject.scene);
@@ -423,7 +434,9 @@ public class FullLevelGenerator : MonoBehaviour
             if (mountainRightPrefabs.Count > 0)
             {
                 var pf = mountainRightPrefabs[Random.Range(0, mountainRightPrefabs.Count)];
-                Vector3 pos = center + right * (halfW + 0.25f);
+                float radius = GetPrefabRadius(pf, 0.5f);
+                float lateral = halfW + radius + 0.12f;
+                Vector3 pos = center + right * lateral;
                 pos.y = GetGroundYAt(pos);
                 Quaternion rot = Quaternion.LookRotation(tangent, Vector3.up);
                 var inst = (GameObject)PrefabUtility.InstantiatePrefab(pf, wallsParent.gameObject.scene);
@@ -667,9 +680,6 @@ public class FullLevelGenerator : MonoBehaviour
         float effectiveHalf = Mathf.Max(0.01f, halfW - margin);
 
         float lateralOffset = Random.Range(-lateralRange, lateralRange) * effectiveHalf;
-        Vector3 spawnPos = center + right * lateralOffset;
-        spawnPos.y = GetGroundYAt(spawnPos) + 0.01f;
-
         float spawnRadius = pickupSpawnRadius;
         GameObject prefab = null;
         Transform parent = null;
@@ -698,6 +708,71 @@ public class FullLevelGenerator : MonoBehaviour
 
         if (prefab == null) return false;
 
+        // Skip very tall obstacle prefabs
+        if (type == SpawnType.Obstacle)
+        {
+            float prefabHeight = GetPrefabBoundsHeight(prefab);
+            if (prefabHeight > maxObstacleHeight)
+            {
+                if (debugMode) Debug.Log($"[FullLevelGenerator] Skip obstacle '{prefab.name}' height {prefabHeight} > maxObstacleHeight {maxObstacleHeight}");
+                return false;
+            }
+        }
+
+        Vector3 spawnPos;
+        Quaternion spawnRotation = Quaternion.LookRotation(tangent, Vector3.up);
+
+        if (type == SpawnType.Decor)
+        {
+            float lateralSign = (lateralOffset >= 0f) ? 1f : -1f;
+            float desiredLateral = lateralSign * (halfW + spawnRadius + 0.12f);
+            spawnPos = center + right * desiredLateral;
+        }
+        else if (type == SpawnType.Obstacle && !placeObstaclesOnRoad)
+        {
+            float lateralSign = (lateralOffset >= 0f) ? 1f : -1f;
+            float desiredLateral = lateralSign * (halfW + spawnRadius + 0.12f);
+            spawnPos = center + right * desiredLateral;
+        }
+        else
+        {
+            spawnPos = center + right * lateralOffset;
+        }
+
+        // PICKUP: align bottom with ground using prefab half-height + hover
+        if (type == SpawnType.Pickup)
+        {
+            float groundY = GetGroundYAt(spawnPos);
+            float halfH = GetPrefabHalfHeight(prefab);
+            float desiredY = (halfH > 0.001f) ? (groundY + halfH + pickupHoverHeight) : (groundY + pickupHoverHeight);
+            spawnPos.y = desiredY;
+
+            if (alignPickupToSurface)
+            {
+                RaycastHit hit;
+                Vector3 from = new Vector3(spawnPos.x, spawnPos.y + 1.5f + halfH, spawnPos.z);
+                if (Physics.Raycast(from, Vector3.down, out hit, 5f))
+                {
+                    Quaternion alignRot = Quaternion.FromToRotation(Vector3.up, hit.normal);
+                    spawnRotation = Quaternion.Lerp(Quaternion.LookRotation(tangent, Vector3.up), alignRot * Quaternion.LookRotation(tangent, Vector3.up), 0.6f);
+                }
+                else
+                {
+                    spawnRotation = Quaternion.LookRotation(tangent, Vector3.up);
+                }
+            }
+            else
+            {
+                spawnRotation = Quaternion.LookRotation(tangent, Vector3.up);
+            }
+        }
+        else
+        {
+            spawnPos.y = GetGroundYAt(spawnPos) + 0.01f;
+            spawnRotation = Quaternion.LookRotation(tangent, Vector3.up);
+        }
+
+        // keep obstacles away from center lane
         if (type == SpawnType.Obstacle)
         {
             float lateralDist = Mathf.Abs(Vector3.Dot(spawnPos - center, right));
@@ -726,7 +801,7 @@ public class FullLevelGenerator : MonoBehaviour
             }
         }
 
-        var go = Instantiate(prefab, spawnPos, Quaternion.LookRotation(tangent, Vector3.up), parent);
+        var go = Instantiate(prefab, spawnPos, spawnRotation, parent);
         go.transform.Rotate(Vector3.up, Random.Range(-30f, 30f));
         placedPositions.Add(spawnPos);
         placedRadii.Add(spawnRadius);
@@ -747,10 +822,6 @@ public class FullLevelGenerator : MonoBehaviour
         float effectiveHalf = Mathf.Max(0.01f, halfW - margin);
 
         float lateralOffset = Random.Range(-lateralRange, lateralRange) * effectiveHalf;
-        Vector3 spawnPos = center + right * lateralOffset;
-        spawnPos.y = GetGroundYAt(spawnPos) + 0.01f;
-
-        float spawnRadius = pickupSpawnRadius;
         GameObject prefab = null;
         Transform parent = null;
 
@@ -775,7 +846,70 @@ public class FullLevelGenerator : MonoBehaviour
 
         if (prefab == null) return false;
 
-        spawnRadius = GetPrefabRadius(prefab, (type == SpawnType.Obstacle) ? obstacleSpawnRadius : (type == SpawnType.Pickup) ? pickupSpawnRadius : decorSpawnRadius);
+        float spawnRadius = GetPrefabRadius(prefab, (type == SpawnType.Obstacle) ? obstacleSpawnRadius : (type == SpawnType.Pickup) ? pickupSpawnRadius : decorSpawnRadius);
+
+        // Skip very tall obstacles in editor
+        if (type == SpawnType.Obstacle)
+        {
+            float prefabHeight = GetPrefabBoundsHeight(prefab);
+            if (prefabHeight > maxObstacleHeight)
+            {
+                if (debugMode) Debug.Log($"[FullLevelGenerator] (Editor) Skip obstacle '{prefab.name}' height {prefabHeight} > maxObstacleHeight {maxObstacleHeight}");
+                return false;
+            }
+        }
+
+        Vector3 spawnPos;
+        Quaternion spawnRotation = Quaternion.LookRotation(tangent, Vector3.up);
+
+        if (type == SpawnType.Decor)
+        {
+            float lateralSign = (lateralOffset >= 0f) ? 1f : -1f;
+            float desiredLateral = lateralSign * (halfW + spawnRadius + 0.12f);
+            spawnPos = center + right * desiredLateral;
+        }
+        else if (type == SpawnType.Obstacle && !placeObstaclesOnRoad)
+        {
+            float lateralSign = (lateralOffset >= 0f) ? 1f : -1f;
+            float desiredLateral = lateralSign * (halfW + spawnRadius + 0.12f);
+            spawnPos = center + right * desiredLateral;
+        }
+        else
+        {
+            spawnPos = center + right * lateralOffset;
+        }
+
+        if (type == SpawnType.Pickup)
+        {
+            float groundY = GetGroundYAt(spawnPos);
+            float halfH = GetPrefabHalfHeight(prefab);
+            float desiredY = (halfH > 0.001f) ? (groundY + halfH + pickupHoverHeight) : (groundY + pickupHoverHeight);
+            spawnPos.y = desiredY;
+
+            if (alignPickupToSurface)
+            {
+                RaycastHit hit;
+                Vector3 from = new Vector3(spawnPos.x, spawnPos.y + 1.5f + halfH, spawnPos.z);
+                if (Physics.Raycast(from, Vector3.down, out hit, 5f))
+                {
+                    Quaternion alignRot = Quaternion.FromToRotation(Vector3.up, hit.normal);
+                    spawnRotation = Quaternion.Lerp(Quaternion.LookRotation(tangent, Vector3.up), alignRot * Quaternion.LookRotation(tangent, Vector3.up), 0.6f);
+                }
+                else
+                {
+                    spawnRotation = Quaternion.LookRotation(tangent, Vector3.up);
+                }
+            }
+            else
+            {
+                spawnRotation = Quaternion.LookRotation(tangent, Vector3.up);
+            }
+        }
+        else
+        {
+            spawnPos.y = GetGroundYAt(spawnPos) + 0.01f;
+            spawnRotation = Quaternion.LookRotation(tangent, Vector3.up);
+        }
 
         if (type == SpawnType.Obstacle)
         {
@@ -808,7 +942,7 @@ public class FullLevelGenerator : MonoBehaviour
         var inst = (GameObject)PrefabUtility.InstantiatePrefab(prefab, (parent != null ? parent.gameObject.scene : prefab.scene));
         inst.transform.SetParent(parent, false);
         inst.transform.position = spawnPos;
-        inst.transform.rotation = Quaternion.LookRotation(tangent, Vector3.up);
+        inst.transform.rotation = spawnRotation;
         inst.transform.Rotate(Vector3.up, Random.Range(-30f, 30f));
         Undo.RegisterCreatedObjectUndo(inst, "Instantiate spawnable");
 
@@ -819,7 +953,7 @@ public class FullLevelGenerator : MonoBehaviour
 #endif
     #endregion
 
-    #region Moving / Checkpoints (runtime/editor)
+    #region Moving / Checkpoints
     void GenerateMovingObstaclesRuntime()
     {
         if (movingObstaclePrefab == null || pathCreator == null) return;
@@ -957,7 +1091,7 @@ public class FullLevelGenerator : MonoBehaviour
 #endif
     #endregion
 
-    #region Utility: GetGround, Prefab radius, CanPlace
+    #region Utility: ground, bounds, radii, placement check
     float GetGroundYAt(Vector3 pos)
     {
         RaycastHit hit;
@@ -1019,6 +1153,26 @@ public class FullLevelGenerator : MonoBehaviour
         return fallback;
     }
 
+    float GetPrefabHalfHeight(GameObject prefab)
+    {
+        if (prefab == null) return 0f;
+        var rends = prefab.GetComponentsInChildren<Renderer>();
+        if (rends == null || rends.Length == 0) return 0f;
+        Bounds b = rends[0].bounds;
+        for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+        return b.extents.y;
+    }
+
+    float GetPrefabBoundsHeight(GameObject prefab)
+    {
+        if (prefab == null) return 0f;
+        var rends = prefab.GetComponentsInChildren<Renderer>();
+        if (rends == null || rends.Length == 0) return 0f;
+        Bounds b = rends[0].bounds;
+        for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+        return b.size.y;
+    }
+
     bool CanPlaceAt(Vector3 pos, float radius)
     {
         float padding = 0.12f;
@@ -1032,7 +1186,7 @@ public class FullLevelGenerator : MonoBehaviour
     }
     #endregion
 
-    #region Densities & Runtime loader
+    #region Densities & runtime loader
     float GetObstacleDensity()
     {
         switch (difficulty) { case Difficulty.Low: return 0.25f; case Difficulty.Medium: return 0.55f; case Difficulty.High: return 0.85f; }
